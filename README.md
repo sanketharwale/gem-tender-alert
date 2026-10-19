@@ -1,35 +1,38 @@
 # GeM Tender Alert
 
-An independent alert bot that checks publicly accessible GeM bid listings for matches associated with **Osmanabad / Dharashiv, Maharashtra** and emails newly detected bids to `sanketharwale0078@gmail.com`.
-
-## How it works
-
-- Checks GeM's public ongoing-bids listing for the search terms Osmanabad, Dharashiv, and Maharashtra.
-- Filters the returned public bid records for Osmanabad/Dharashiv references.
-- Tracks previously seen bid numbers in `seen_bids.json`.
-- Emails only newly detected matches.
-- GitHub Actions is scheduled every 3 hours (UTC cron; GitHub may delay scheduled jobs).
+An independent alert bot that checks the publicly accessible GeM **All Bids** page and emails detected listings.
 
 Official portal: https://bidplus.gem.gov.in/all-bids
 
-## Required GitHub Actions secrets
+## Current behaviour
 
-Open **Settings → Secrets and variables → Actions → New repository secret** and add:
+- Requests the public All Bids page and extracts bid-like links from the returned HTML.
+- On the first successful run, when there is no saved `seen_bids.json` state, emails all listings it can extract from that page.
+- After a successful email, saves detected bid identifiers to `seen_bids.json` so later runs email only newly detected listings.
+- Runs daily at **08:00 India Standard Time (IST)** using GitHub Actions (02:30 UTC). GitHub may delay scheduled jobs.
+- Can also be started manually from **Actions → GeM Tender Alert → Run workflow**.
 
-- `EMAIL_SENDER`: the Gmail address used to send alerts (usually the same Gmail inbox).
-- `EMAIL_APP_PASSWORD`: a Gmail App Password, not your normal Gmail password.
+## Configure email secrets
 
-Do not put passwords in code, commit them to the repository, or share them in chat. Gmail App Passwords require 2-Step Verification to be enabled on the Google account.
+In the repository, open **Settings → Secrets and variables → Actions → New repository secret**.
 
-## Run it manually
+Add these secrets:
 
-Open **Actions → GeM Tender Alert → Run workflow**. Check the run logs for the result.
+1. `EMAIL_SENDER` — Gmail address used to send alerts.
+2. `EMAIL_APP_PASSWORD` — Gmail App Password, not your normal Gmail password.
+3. `ALERT_TO_EMAIL` — recipient address for alerts. It can be the same Gmail address as `EMAIL_SENDER`.
+
+Gmail App Passwords require 2-Step Verification. Keep these values in GitHub Secrets only; never commit or share them in code or chat.
+
+## First run note
+
+The first run can email **all listings successfully extracted from the page**, not necessarily every bid available on GeM. Review the email volume before relying on it. After the email is sent successfully, the workflow commits the seen-bid state so future runs can send only new listings.
 
 ## Important limitations
 
-- This uses public portal search results, not an official GeM API. GeM may change the endpoint or response format, so runs can fail and need maintenance.
-- Public search results may be delayed or incomplete. The bot only sees up to three result pages per search term by default.
-- Location matching relies on the text returned in public bid records. A bid whose district is only mentioned inside an attached PDF may not be detected.
+- This is a basic HTML scraper, not an official GeM API integration. It depends on the HTML returned to GitHub Actions and can break if GeM changes the page or loads results with JavaScript.
+- It may not retrieve all pages or every bid; a successful run is not proof of complete coverage of all government tenders.
+- If no bid-like records are extracted, the script intentionally fails instead of silently reporting success.
 - Verify bid number, buyer, eligibility, documents, and deadline on the official GeM portal before acting.
-- This repository is not affiliated with or endorsed by GeM or the Government of India.
-- Requests are intentionally spaced out; this bot does not attempt to bypass CAPTCHA, login, or access controls.
+- This repository is independent and is not affiliated with or endorsed by GeM or the Government of India.
+- The bot does not attempt to bypass CAPTCHA, login, or access controls.
