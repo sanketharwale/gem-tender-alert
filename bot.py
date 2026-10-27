@@ -37,9 +37,39 @@ class GeMSession:
     def request(self, url, data=None, headers=None):
         headers = dict(headers or {})
         headers.setdefault("User-Agent", USER_AGENT)
-        req = Request(url, data=data.encode() if isinstance(data, str) else data, headers=headers)
-        with self.opener.open(req, timeout=30) as response:
-            return response.read().decode("utf-8", errors="replace")
+        max_attempts = max(1, int(os.getenv("REQUEST_MAX_ATTEMPTS", "4")))
+        backoff = max(1, int(os.getenv("REQUEST_RETRY_BACKOFF_SECONDS", "3")))
+        last_error = None
+
+        for attempt in range(1, max_attempts + 1):
+            req = Request(
+                url,
+                data=data.encode() if isinstance(data, str) else data,
+                headers=headers,
+            )
+            try:
+                with self.opener.open(req, timeout=30) as response:
+                    return response.read().decode("utf-8", errors="replace")
+            except HTTPError as exc:
+                last_error = exc
+                # Retry only transient server/rate-limit responses; fail fast on other 4xx errors.
+                if exc.code != 429 and not 500 <= exc.code <= 599:
+                    raise
+            except (URLError, TimeoutError, ConnectionError) as exc:
+                last_error = exc
+
+            if attempt < max_attempts:
+                delay = backoff * (2 ** (attempt - 1))
+                print(
+                    f"GeM connection/request attempt {attempt}/{max_attempts} failed "
+                    f"({last_error}); retrying in {delay}s.",
+                    file=sys.stderr,
+                )
+                time.sleep(delay)
+
+        raise RuntimeError(
+            f"GeM request failed after {max_attempts} attempts for {url}: {last_error}"
+        )
 
     def init(self):
         html = self.request(ALL_BIDS_URL, headers={"Accept": "text/html"})
@@ -140,8 +170,13 @@ def save_seen(seen):
 def send_email(bids):
     host = os.getenv("SMTP_HOST", "smtp.gmail.com")
     port = int(os.getenv("SMTP_PORT", "465"))
-    sender = os.environ["EMAIL_SENDER"]
-    password = os.environ["EMAIL_APP_PASSWORD"]
+    sender = os.getenv("EMAIL_SENDER", "").strip()
+    password = os.getenv("EMAIL_APP_PASSWORD", "").strip()
+    if not sender or not password:
+        raise RuntimeError(
+            "Email credentials are missing. Add EMAIL_SENDER and EMAIL_APP_PASSWORD "
+            "in GitHub repository Settings > Secrets and variables > Actions."
+        )
     recipient = os.getenv("EMAIL_RECIPIENT", "sanketharwale0078@gmail.com")
     msg = EmailMessage()
     msg["Subject"] = f"GeM Tender Alert: {len(bids)} new Maharashtra / Dharashiv bid(s)"
@@ -187,9 +222,16 @@ def main():
                     if key and is_target_bid(bid):
                         found[key] = bid
                 time.sleep(REQUEST_PAUSE_SECONDS)
-        except (HTTPError, URLError, TimeoutError, ValueError, RuntimeError) as exc:
-            print(f"Search failed for '{term}': {exc}", file=sys.stderr)
-            raise
+        except Exception as exc:
+            print(
+                f"ERROR: Search failed for '{term}' after request retries: "
+                f"{type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
+            raise RuntimeError(
+                f"GeM search failed for '{term}'. No seen-bid state was saved; "
+                "check the workflow logs and retry later."
+            ) from exc
     new_bids = [bid for key, bid in found.items() if key not in seen]
     print(f"Matching bids: {len(found)}; new bids: {len(new_bids)}")
     if new_bids:
