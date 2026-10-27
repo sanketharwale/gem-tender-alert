@@ -30,7 +30,18 @@ jobs:
           EMAIL_APP_PASSWORD: ${{ secrets.EMAIL_APP_PASSWORD }}
           EMAIL_RECIPIENT: sanketharwale0078@gmail.com
           MAX_PAGES_PER_TERM: "3"
+          REQUEST_MAX_ATTEMPTS: "4"
+          REQUEST_RETRY_BACKOFF_SECONDS: "3"
         run: python bot.py
+
+      - name: Explain failure in workflow summary
+        if: failure()
+        run: |
+          echo "## GeM Tender Alert failed" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "The bot could not complete the GeM search or alert step." >> "$GITHUB_STEP_SUMMARY"
+          echo "Open the failed step logs for the exact error. The bot does not save seen-bid state after a failed search." >> "$GITHUB_STEP_SUMMARY"
+          echo "If the logs mention missing email credentials, configure EMAIL_SENDER and EMAIL_APP_PASSWORD in repository Actions secrets." >> "$GITHUB_STEP_SUMMARY"
       - name: Save seen-bid state
         run: |
           if [[ -n "$(git status --porcelain seen_bids.json)" ]]; then
